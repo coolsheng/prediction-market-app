@@ -1,0 +1,29 @@
+{
+  "name": "prediction-market-app",
+  "version": "1.0.0",
+  "description": "A monorepo with Expo mobile app and Rust serverless backend",
+  "private": true,
+  "workspaces": [
+    "mobile"
+  ],
+  "scripts": {
+    "mobile": "cd mobile && npm start",
+    "mobile:install": "cd mobile && npm install",
+    "backend:build": "cd backend && cargo build",
+    "backend:test": "cd backend && cargo test",
+    "install:all": "npm install && npm run mobile:install"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/coolsheng/prediction-market-app"
+  },
+  "keywords": [
+    "prediction-market",
+    "expo",
+    "rust",
+    "serverless",
+    "monorepo"
+  ],
+  "author": "",
+  "license": "MIT"
+}

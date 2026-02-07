@@ -1,6 +1,6 @@
 # Prediction Market Mobile App
 
-This is the mobile application built with Expo and React Native.
+This is the mobile application built with Expo and React Native for the Idiot Market Prediction service.
 
 ## Getting Started
 
@@ -19,14 +19,24 @@ This is the mobile application built with Expo and React Native.
    - Android: `npm run android`
    - Web: `npm run web`
 
+## Environment Variables
+
+Create a `.env` file in the `mobile` directory with:
+
+```
+EXPO_PUBLIC_API_KEY=your_api_key_here
+```
+
 ## Features
 
-- Basic prediction market interface
-- Ready for backend integration
+- Submit prediction market URLs for analysis
+- View AI-generated predictions with confidence scores
+- See key factors and risks for each prediction
 - Cross-platform support (iOS, Android, Web)
 
 ## Tech Stack
 
-- Expo SDK 50
-- React Native
-- TypeScript
+- Expo SDK 52
+- React Native 0.76
+- React 18.3
+- TypeScript 5.3

@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { StyleSheet, Text, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, SafeAreaView } from 'react-native';
 import { useState } from 'react';
 
 interface PredictionResponse {
@@ -20,26 +20,36 @@ export default function App() {
 
   const handleSubmit = async () => {
     if (!url.trim()) return;
-    
+
     setIsLoading(true);
     setResponse(null);
     setError(null);
-    
+
     try {
-      const response = await fetch('http://localhost:9000/lambda-url/bootstrap', {
+      const apiKey = process.env.EXPO_PUBLIC_API_KEY;
+      const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL;
+
+      if (!apiKey) {
+        throw new Error('API key is not configured. Please set EXPO_PUBLIC_API_KEY in your .env file.');
+      }
+
+      if (!backendUrl) {
+        throw new Error('Backend URL is not configured. Please set EXPO_PUBLIC_BACKEND_URL in your .env file.');
+      }
+      const response = await fetch(`${backendUrl}/lambda-url/bootstrap`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': 'aasdasdaasdasdasdasd'
+          'x-api-key': apiKey
         },
         body: JSON.stringify({ market_url: url.trim() }),
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
         throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
       }
-      
+
       const data: PredictionResponse = await response.json();
       setResponse(data);
     } catch (err) {
@@ -50,116 +60,124 @@ export default function App() {
   };
 
   return (
-    <KeyboardAvoidingView 
-      style={styles.container} 
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <StatusBar style="light" />
-      
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Idiot Market Prediction</Text>
-      </View>
-
-      {/* Response Display Area */}
-      <ScrollView
-        style={styles.responseContainer}
-        contentContainerStyle={styles.responseContent}
-        showsVerticalScrollIndicator={true}
+    <SafeAreaView style={styles.container}>
+      <KeyboardAvoidingView
+        style={styles.keyboardView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
-        {error ? (
-          <View style={[styles.messageBubble, styles.errorBubble]}>
-            <Text style={styles.errorText}>Error: {error}</Text>
-          </View>
-        ) : response ? (
-          <View style={styles.responseCard}>
-            {/* Prediction */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Prediction</Text>
-              <Text style={styles.predictionText}>{response.prediction}</Text>
-            </View>
+        <StatusBar style="light" />
 
-            {/* Confidence */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Confidence</Text>
-              <View style={styles.confidenceBar}>
-                <View
-                  style={[styles.confidenceFill, { width: `${response.confidence * 100}%` }]}
-                />
-              </View>
-              <Text style={styles.confidenceText}>{(response.confidence * 100).toFixed(0)}%</Text>
-            </View>
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Idiot Market Prediction</Text>
+        </View>
 
-            {/* Key Factors */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Key Factors</Text>
-              {response.key_factors.map((factor, index) => (
-                <View key={index} style={styles.bulletItem}>
-                  <Text style={styles.bullet}>•</Text>
-                  <Text style={styles.bulletText}>{factor}</Text>
-                </View>
-              ))}
-            </View>
-
-            {/* Risks */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Risks</Text>
-              {response.risks.map((risk, index) => (
-                <View key={index} style={styles.bulletItem}>
-                  <Text style={styles.bullet}>•</Text>
-                  <Text style={styles.bulletText}>{risk}</Text>
-                </View>
-              ))}
-            </View>
-
-            {/* Time Sensitivity */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Time Sensitivity</Text>
-              <Text style={styles.infoText}>{response.time_sensitivity}</Text>
-            </View>
-
-            {/* Metadata */}
-            <View style={styles.metadataSection}>
-              <Text style={styles.metadataText}>
-                Model: {response.model}
-              </Text>
-              <Text style={styles.metadataText}>
-                Generated: {new Date(response.timestamp * 1000).toLocaleString()}
-              </Text>
-            </View>
-          </View>
-        ) : (
-          <View style={styles.placeholderContainer}>
-            <Text style={styles.placeholderText}>
-              Enter a URL below to get started
-            </Text>
-          </View>
-        )}
-      </ScrollView>
-
-      {/* Input Area */}
-      <View style={styles.inputContainer}>
-        <TextInput
-          style={styles.input}
-          placeholder="Enter URL here..."
-          placeholderTextColor="#8e8ea0"
-          value={url}
-          onChangeText={setUrl}
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="url"
-        />
-        <TouchableOpacity 
-          style={[styles.submitButton, (!url.trim() || isLoading) && styles.submitButtonDisabled]} 
-          onPress={handleSubmit}
-          disabled={!url.trim() || isLoading}
+        {/* Response Display Area */}
+        <ScrollView
+          style={styles.responseContainer}
+          contentContainerStyle={styles.responseContent}
+          showsVerticalScrollIndicator={true}
+          keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.submitButtonText}>
-            {isLoading ? '...' : '↑'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
+          {error ? (
+            <View style={[styles.messageBubble, styles.errorBubble]}>
+              <Text style={styles.errorText}>Error: {error}</Text>
+            </View>
+          ) : response ? (
+            <View style={styles.responseCard}>
+              {/* Prediction */}
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Prediction</Text>
+                <Text style={styles.predictionText}>{response.prediction}</Text>
+              </View>
+
+              {/* Confidence */}
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Confidence</Text>
+                <View style={styles.confidenceBar}>
+                  <View
+                    style={[styles.confidenceFill, { width: `${response.confidence * 100}%` }]}
+                  />
+                </View>
+                <Text style={styles.confidenceText}>{(response.confidence * 100).toFixed(0)}%</Text>
+              </View>
+
+              {/* Key Factors */}
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Key Factors</Text>
+                {response.key_factors.map((factor, index) => (
+                  <View key={index} style={styles.bulletItem}>
+                    <Text style={styles.bullet}>•</Text>
+                    <Text style={styles.bulletText}>{factor}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Risks */}
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Risks</Text>
+                {response.risks.map((risk, index) => (
+                  <View key={index} style={styles.bulletItem}>
+                    <Text style={styles.bullet}>•</Text>
+                    <Text style={styles.bulletText}>{risk}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Time Sensitivity */}
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Time Sensitivity</Text>
+                <Text style={styles.infoText}>{response.time_sensitivity}</Text>
+              </View>
+
+              {/* Metadata */}
+              <View style={styles.metadataSection}>
+                <Text style={styles.metadataText}>
+                  Model: {response.model}
+                </Text>
+                <Text style={styles.metadataText}>
+                  Generated: {new Date(response.timestamp * 1000).toLocaleString()}
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.placeholderContainer}>
+              <Text style={styles.placeholderText}>
+                Enter a URL below to get started
+              </Text>
+            </View>
+          )}
+        </ScrollView>
+
+        {/* Input Area */}
+        <View style={styles.inputContainer}>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter URL here..."
+            placeholderTextColor="#8e8ea0"
+            value={url}
+            onChangeText={setUrl}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            returnKeyType="send"
+            onSubmitEditing={handleSubmit}
+            editable={!isLoading}
+          />
+          <TouchableOpacity
+            style={[styles.submitButton, (!url.trim() || isLoading) && styles.submitButtonDisabled]}
+            onPress={handleSubmit}
+            disabled={!url.trim() || isLoading}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.submitButtonText}>
+              {isLoading ? '...' : '↑'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
@@ -168,8 +186,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#343541',
   },
+  keyboardView: {
+    flex: 1,
+  },
   header: {
-    paddingTop: 60,
+    paddingTop: Platform.OS === 'ios' ? 10 : 20,
     paddingHorizontal: 20,
     paddingBottom: 20,
     backgroundColor: '#343541',
@@ -189,12 +210,13 @@ const styles = StyleSheet.create({
   responseContent: {
     padding: 20,
     paddingBottom: 40,
+    flexGrow: 1,
   },
   placeholderContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 100,
+    minHeight: 200,
   },
   placeholderText: {
     fontSize: 16,
@@ -206,11 +228,6 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     maxWidth: '100%',
-  },
-  messageText: {
-    fontSize: 16,
-    color: '#ffffff',
-    lineHeight: 24,
   },
   inputContainer: {
     flexDirection: 'row',

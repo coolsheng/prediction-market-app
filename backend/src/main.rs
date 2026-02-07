@@ -11,6 +11,8 @@ use aws_sdk_bedrockruntime::types::ContentBlock;
 use aws_sdk_bedrockruntime::types::ConverseOutput;
 use models::KelshiContext;
 use reqwest;
+use dotenv::dotenv;
+use std::env;
 
 #[derive(Deserialize, Default)]
 struct AppRequest {
@@ -82,9 +84,10 @@ async fn invoke_bedrock_model(
     let news_context_ref = news_context.as_ref().map_or("", |s| s.as_str());
 
     let system_prompt = format!(
-                        "Role: Expert prediction market analyst
+                "Role: Expert prediction market analyst
                 Task: Analyze {}
                 Data: [ODDS_DATA] {}, [VOLUME_DATA] {}, [NEWS_CONTEXT] {}
+                MAKE SURE YOU OUTPUT THE PREDICTION IN THE FOLLOWING JSON FORMAT AND NOTHING ELSE - DO NOT INCLUDE ANY EXPLANATION OR ADDITIONAL TEXT, JUST THE RAW JSON
                 Output format: 
                 {{
                     \"prediction\": \"Your concise prediction here - make sure it's just a paragraph for explaination \",
@@ -180,6 +183,18 @@ async fn invoke_bedrock_model(
 }
 
 async fn handler(event: Request) -> Result<Response<Body>, Error> {
+
+        dotenv().ok(); // Reads the .env file
+
+    let api_key = env::var("API_KEY").expect("API_KEY must be set");
+    
+    // Check API key
+    let headers = event.headers();
+        if headers.get("x-api-key") != Some(&api_key.parse().unwrap()) {
+    return Ok(Response::builder().status(403).body("Forbidden".into())?);
+    }
+
+
     // Initialize Bedrock client
     let bedrock_client = get_bedrock_client().await;
 

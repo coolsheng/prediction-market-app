@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "mobile": "cd mobile && npm start",
+    "mobile:web": "cd mobile && npm run web",
     "mobile:install": "cd mobile && npm install",
     "backend:build": "cd backend && cargo build",
     "backend:test": "cd backend && cargo test",
@@ -25,5 +26,7 @@
     "monorepo"
   ],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+  }
 }

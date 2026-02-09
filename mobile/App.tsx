@@ -4,6 +4,7 @@ import { useState } from 'react';
 
 interface PredictionResponse {
   prediction: string;
+  recommended_buy: string;
   confidence: number;
   key_factors: string[];
   risks: string[];
@@ -90,6 +91,12 @@ export default function App() {
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Prediction</Text>
                 <Text style={styles.predictionText}>{response.prediction}</Text>
+              </View>
+
+              {/* Recommended Buy */}
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Recommended Buy</Text>
+                <Text style={styles.recommendedBuyText}>{response.recommended_buy}</Text>
               </View>
 
               {/* Confidence */}
@@ -300,6 +307,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#ffffff',
     lineHeight: 24,
+  },
+  recommendedBuyText: {
+    fontSize: 16,
+    color: '#19c37d',
+    lineHeight: 24,
+    fontWeight: '600',
   },
   // Confidence bar styles
   confidenceBar: {

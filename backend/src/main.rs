@@ -25,6 +25,7 @@ struct AppRequest {
 #[derive(Serialize)]
 struct AppResponse {
     prediction: String,
+    recommended_buy: String,
     confidence: f32,
     key_factors: Vec<String>,
     risks: Vec<String>,
@@ -37,6 +38,8 @@ struct AppResponse {
 #[serde(rename_all = "camelCase")]
 struct BedrockPrediction {
     prediction: String,
+    #[serde(default)]
+    recommended_buy: String,
     #[serde(default = "default_confidence")]
     confidence: f32,
     #[serde(default)]
@@ -118,7 +121,7 @@ async fn invoke_bedrock_model(
     odds_data: Option<String>,
     volume_data: Option<String>,
     news_context: Option<String>,
-) -> Result<(String, f32, Vec<String>, Vec<String>, String), anyhow::Error> {
+) -> Result<(String, String, f32, Vec<String>, Vec<String>, String), anyhow::Error> {
     let model_id = "anthropic.claude-3-haiku-20240307-v1:0";
     info!(model_id = %model_id, market_type = %market_type, "Invoking Bedrock model");
     
@@ -136,6 +139,8 @@ async fn invoke_bedrock_model(
                 Output format:
                 {{
                     \"prediction\": \"Your concise prediction here - make sure it's just a paragraph for explaination \",
+                    // a recommendation on what to buy (YES or NO) with a brief explanation of why
+                    \"recommendedBuy\": \"YES or NO - brief explanation why\",
                     // a confidence score between 0 and 1 indicating how confident you are in the prediction - this should be based on the data and your analysis, not a generic statement
                     \"confidence\": 0.XX\",
                     // list of key factors influencing the market - these should be specific to the market and data provided, not generic factors
@@ -182,6 +187,7 @@ async fn invoke_bedrock_model(
                         // info!(confidence = parsed.confidence, key_factors_count = parsed.key_factors.len(), risks_count = parsed.risks.len(), "Successfully parsed Bedrock response");
                         Ok((
                             parsed.prediction,
+                            parsed.recommended_buy,
                             parsed.confidence.clamp(0.0, 1.0),
                             parsed.key_factors,
                             parsed.risks,
@@ -189,7 +195,7 @@ async fn invoke_bedrock_model(
                         ))
                     } else {
                         warn!(response_text = %text, "Bedrock response was not valid JSON, using raw text");
-                        Ok((text.clone(), 0.5, Vec::new(), Vec::new(), "Not specified".to_string()))
+                        Ok((text.clone(), "No recommendation available".to_string(), 0.5, Vec::new(), Vec::new(), "Not specified".to_string()))
                     }
                 } else {
                     error!("No text content in Bedrock response");
@@ -265,7 +271,7 @@ async fn handler(event: Request) -> Result<Response<Body>, Error> {
 
             // Invoke Bedrock model for prediction
             info!(market_type = %market_type, "Invoking Bedrock model for prediction");
-            let (prediction, confidence, key_factors, risks, time_sensitivity) = match invoke_bedrock_model(
+            let (prediction, recommended_buy, confidence, key_factors, risks, time_sensitivity) = match invoke_bedrock_model(
                 &bedrock_client,
                 &market_type,
                 Some(odds_data),
@@ -289,6 +295,7 @@ async fn handler(event: Request) -> Result<Response<Body>, Error> {
 
             let app_response = AppResponse {
                 prediction,
+                recommended_buy,
                 confidence,
                 key_factors,
                 risks,

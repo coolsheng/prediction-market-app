@@ -1,18 +1,20 @@
 pub mod models;
 
-use std::time::SystemTime;
-use lambda_http::{service_fn, Body, Error, Request, RequestPayloadExt, Response};
-use serde::{Deserialize, Serialize};
-use http::Method;
-use regex::Regex;
 use aws_config::BehaviorVersion;
 use aws_sdk_bedrockruntime::Client as BedrockClient;
 use aws_sdk_bedrockruntime::types::ContentBlock;
 use aws_sdk_bedrockruntime::types::ConverseOutput;
+use dotenv::dotenv;
+use http::Method;
+use lambda_http::{service_fn, Body, Error, Request, RequestPayloadExt, Response};
 use models::KelshiContext;
 use reqwest;
-use dotenv::dotenv;
+use regex::Regex;
+use serde::{Deserialize, Serialize};
 use std::env;
+use std::time::SystemTime;
+use tokio::sync::OnceCell;
+use tracing::{debug, error, info, instrument, warn};
 
 #[derive(Deserialize, Default)]
 struct AppRequest {
@@ -31,13 +33,39 @@ struct AppResponse {
     model: String,
 }
 
-/// Initialize AWS Bedrock client
-async fn get_bedrock_client() -> BedrockClient {
-    let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
-    BedrockClient::new(&config)
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct BedrockPrediction {
+    prediction: String,
+    #[serde(default = "default_confidence")]
+    confidence: f32,
+    #[serde(default)]
+    key_factors: Vec<String>,
+    #[serde(default)]
+    risks: Vec<String>,
+    #[serde(default = "default_time_sensitivity")]
+    time_sensitivity: String,
 }
 
+fn default_confidence() -> f32 { 0.5 }
+fn default_time_sensitivity() -> String { "Not specified".to_string() }
+
+static BEDROCK_CLIENT: OnceCell<BedrockClient> = OnceCell::const_new();
+
+/// Initialize AWS Bedrock client
+#[instrument]
+async fn get_bedrock_client() -> &'static BedrockClient {
+    BEDROCK_CLIENT.get_or_init(|| async {
+        info!("Initializing AWS Bedrock client for the first time (cold start)");
+        let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
+        BedrockClient::new(&config)
+    }).await
+}
+
+#[instrument(skip(url))]
 async fn call_external_api(url: &str) -> Result<(String, String, String, String), anyhow::Error> {
+    info!(market_url = %url, "Calling external Kalshi API");
+    
     // Regex to capture the market ticker from the URL and convert it to uppercase.
     let re = Regex::new(r"markets/([^/]+)")?;
     let series_ticker = re
@@ -45,17 +73,29 @@ async fn call_external_api(url: &str) -> Result<(String, String, String, String)
         .and_then(|caps| caps.get(1))
         .map(|m| m.as_str().to_uppercase())
         .ok_or_else(|| anyhow::anyhow!("Failed to extract market ticker from URL: {}", url))?;
+    
+    info!(series_ticker = %series_ticker, "Extracted series ticker from URL");
 
     let client = reqwest::Client::new();
     let api_url = format!("https://api.elections.kalshi.com/trade-api/v2/markets?series_ticker={}&status=open", series_ticker);
+    
+    debug!(api_url = %api_url, "Constructed Kalshi API URL");
 
     let response = client.get(&api_url).send().await?;
+    
+    let status = response.status();
+    info!(status = %status, "Received response from Kalshi API");
 
-    if !response.status().is_success() {
-        return Err(anyhow::anyhow!("Kalshi API request failed with status: {}", response.status()));
+    if !status.is_success() {
+        error!(status = %status, "Kalshi API request failed");
+        return Err(anyhow::anyhow!("Kalshi API request failed with status: {}", status));
     }
 
-    let kalshi_context: KelshiContext = serde_json::from_str(&response.text().await?)?;
+    let response_text = response.text().await?;
+    debug!(response_len = response_text.len(), "Received Kalshi API response body");
+    
+    let kalshi_context: KelshiContext = serde_json::from_str(&response_text)?;
+    info!(market_count = kalshi_context.markets.len(), "Parsed Kalshi context");
 
     let market_type = kalshi_context.markets.first().map(|m| m.market_type.clone()).unwrap_or_default();
     let market_data_as_string = serde_json::to_string(&kalshi_context.markets)?;
@@ -64,11 +104,14 @@ async fn call_external_api(url: &str) -> Result<(String, String, String, String)
     let odds_data = market_data_as_string.clone();
     let volume_data = market_data_as_string;
     let news_context = String::new();
+    
+    info!(market_type = %market_type, "Extracted market data successfully");
 
     Ok((market_type, odds_data, volume_data, news_context))
 }
 
 /// Invoke AWS Bedrock model to generate a prediction
+#[instrument(skip(client, odds_data, volume_data, news_context))]
 async fn invoke_bedrock_model(
     client: &BedrockClient,
     market_type: &str,
@@ -76,19 +119,21 @@ async fn invoke_bedrock_model(
     volume_data: Option<String>,
     news_context: Option<String>,
 ) -> Result<(String, f32, Vec<String>, Vec<String>, String), anyhow::Error> {
-    // Use Claude 3 Haiku model (fast and cost-effective)
     let model_id = "anthropic.claude-3-haiku-20240307-v1:0";
+    info!(model_id = %model_id, market_type = %market_type, "Invoking Bedrock model");
     
     let odds_data_ref = odds_data.as_ref().map_or("", |s| s.as_str());
     let volume_data_ref = volume_data.as_ref().map_or("", |s| s.as_str());
     let news_context_ref = news_context.as_ref().map_or("", |s| s.as_str());
+    
+    debug!(odds_data_len = odds_data_ref.len(), volume_data_len = volume_data_ref.len(), news_context_len = news_context_ref.len(), "Input data sizes");
 
     let system_prompt = format!(
                 "Role: Expert prediction market analyst
                 Task: Analyze {}
                 Data: [ODDS_DATA] {}, [VOLUME_DATA] {}, [NEWS_CONTEXT] {}
                 MAKE SURE YOU OUTPUT THE PREDICTION IN THE FOLLOWING JSON FORMAT AND NOTHING ELSE - DO NOT INCLUDE ANY EXPLANATION OR ADDITIONAL TEXT, JUST THE RAW JSON
-                Output format: 
+                Output format:
                 {{
                     \"prediction\": \"Your concise prediction here - make sure it's just a paragraph for explaination \",
                     // a confidence score between 0 and 1 indicating how confident you are in the prediction - this should be based on the data and your analysis, not a generic statement
@@ -115,6 +160,8 @@ async fn invoke_bedrock_model(
         .content(content)
         .build()
         .map_err(|e| anyhow::anyhow!("Failed to build message: {}", e))?;
+    
+    info!("Sending request to Bedrock");
 
     let response = client
         .converse()
@@ -126,94 +173,88 @@ async fn invoke_bedrock_model(
 
     match response {
         Ok(output) => {
+            info!("Received successful response from Bedrock");
             if let Some(ConverseOutput::Message(message)) = output.output {
                 if let Some(ContentBlock::Text(text)) = message.content().first() {
-                    // Try to parse the JSON response
-                    if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(text) {
-                        let prediction = json_val
-                            .get("prediction")
-                            .and_then(|p| p.as_str())
-                            .unwrap_or("Unable to parse prediction")
-                            .to_string();
-                        let confidence = json_val
-                            .get("confidence")
-                            .and_then(|c| c.as_f64())
-                            .unwrap_or(0.5) as f32;
-                        let key_factors = json_val
-                            .get("keyFactors")
-                            .and_then(|kf| kf.as_array())
-                            .map(|arr| {
-                                arr.iter()
-                                    .filter_map(|v| v.as_str().map(String::from))
-                                    .collect::<Vec<String>>()
-                            })
-                            .unwrap_or_default();
-                        let risks = json_val
-                            .get("risks")
-                            .and_then(|r| r.as_array())
-                            .map(|arr| {
-                                arr.iter()
-                                    .filter_map(|v| v.as_str().map(String::from))
-                                    .collect::<Vec<String>>()
-                            })
-                            .unwrap_or_default();
-                        let time_sensitivity = json_val
-                            .get("timeSensitivity")
-                            .and_then(|ts| ts.as_str())
-                            .unwrap_or("Not specified")
-                            .to_string();
+                    debug!(response_text_len = text.len(), "Bedrock response text received");
 
-                        Ok((prediction, confidence.clamp(0.0, 1.0), key_factors, risks, time_sensitivity))
+                    if let Ok(parsed) = serde_json::from_str::<BedrockPrediction>(text) {
+                        // info!(confidence = parsed.confidence, key_factors_count = parsed.key_factors.len(), risks_count = parsed.risks.len(), "Successfully parsed Bedrock response");
+                        Ok((
+                            parsed.prediction,
+                            parsed.confidence.clamp(0.0, 1.0),
+                            parsed.key_factors,
+                            parsed.risks,
+                            parsed.time_sensitivity,
+                        ))
                     } else {
-                        // If not valid JSON, use the raw text
+                        warn!(response_text = %text, "Bedrock response was not valid JSON, using raw text");
                         Ok((text.clone(), 0.5, Vec::new(), Vec::new(), "Not specified".to_string()))
                     }
                 } else {
+                    error!("No text content in Bedrock response");
                     Err(anyhow::anyhow!("No text content in Bedrock response"))
                 }
             } else {
+                error!("Unexpected response type from Bedrock");
                 Err(anyhow::anyhow!("Unexpected response type from Bedrock"))
             }
         }
         Err(e) => {
-            eprintln!("Bedrock API error: {:?}", e);
+            error!(error = %e, "Bedrock API error");
             Err(anyhow::anyhow!("Failed to invoke Bedrock model: {}", e))
         }
     }
 }
 
+#[instrument(skip(event))]
 async fn handler(event: Request) -> Result<Response<Body>, Error> {
-
-        dotenv().ok(); // Reads the .env file
+    info!("Lambda handler invoked");
+    
+    dotenv().ok(); // Reads the .env file
+    info!("Environment variables loaded from .env file");
 
     let api_key = env::var("API_KEY").expect("API_KEY must be set");
+    info!("API_KEY loaded successfully");
     
     // Check API key
     let headers = event.headers();
-        if headers.get("x-api-key") != Some(&api_key.parse().unwrap()) {
-    return Ok(Response::builder().status(403).body("Forbidden".into())?);
+    let request_api_key = headers.get("x-api-key");
+    info!(has_api_key = request_api_key.is_some(), "Checking API key");
+    
+    if request_api_key != Some(&api_key.parse().unwrap()) {
+        warn!("Invalid or missing API key");
+        return Ok(Response::builder().status(403).body("Forbidden".into())?);
     }
+    info!("API key validated successfully");
 
-
-    // Initialize Bedrock client
+    // Get a shared instance of the Bedrock client, initialized on first use.
     let bedrock_client = get_bedrock_client().await;
 
-    match *event.method() {
-        Method::POST => {
+    match event.method() {
+        m if *m == Method::POST => {
+            info!("Handling POST request");
             let app_request: AppRequest = event.payload()?.unwrap_or_default();
+            info!(market_url = %app_request.market_url, "Received request");
 
             if app_request.market_url.is_empty() || !app_request.market_url.contains("kalshi.com/markets/") {
-                        return Ok(Response::builder()
-                            .status(400)
-                            .header("content-type", "application/json")
-                            .body(r#"{"error":"Invalid request"}"#.into())
-                            .expect("Failed to build error response"));            }
- 
+                warn!(market_url = %app_request.market_url, "Invalid market URL");
+                return Ok(Response::builder()
+                    .status(400)
+                    .header("content-type", "application/json")
+                    .body(r#"{"error":"Invalid request"}"#.into())
+                    .expect("Failed to build error response"));
+            }
+            
+            info!("Calling external Kalshi API");
             let (market_type, odds_data, volume_data, news_context) =
                 match call_external_api(&app_request.market_url).await {
-                    Ok(data) => data,
+                    Ok(data) => {
+                        info!(market_type = %data.0, "Successfully fetched market data");
+                        data
+                    }
                     Err(e) => {
-                        eprintln!("Error calling external API: {}", e);
+                        error!(error = %e, "Error calling external API");
                         return Ok(Response::builder()
                             .status(500)
                             .header("content-type", "application/json")
@@ -223,6 +264,7 @@ async fn handler(event: Request) -> Result<Response<Body>, Error> {
                 };
 
             // Invoke Bedrock model for prediction
+            info!(market_type = %market_type, "Invoking Bedrock model for prediction");
             let (prediction, confidence, key_factors, risks, time_sensitivity) = match invoke_bedrock_model(
                 &bedrock_client,
                 &market_type,
@@ -231,9 +273,12 @@ async fn handler(event: Request) -> Result<Response<Body>, Error> {
                 Some(news_context),
             )
             .await {
-                Ok(result) => result,
+                Ok(result) => {
+                    info!(confidence = result.1, "Successfully generated prediction");
+                    result
+                }
                 Err(e) => {
-                    eprintln!("Failed to invoke Bedrock model: {}", e);
+                    error!(error = %e, "Failed to invoke Bedrock model");
                     return Ok(Response::builder()
                         .status(500)
                         .header("content-type", "application/json")
@@ -254,6 +299,8 @@ async fn handler(event: Request) -> Result<Response<Body>, Error> {
                     .unwrap_or(0),
                 model: "anthropic.claude-3-haiku-20240307-v1:0".to_string(),
             };
+            
+            info!(timestamp = app_response.timestamp, "Building successful response");
 
             Ok(Response::builder()
                 .status(200)
@@ -261,14 +308,26 @@ async fn handler(event: Request) -> Result<Response<Body>, Error> {
                 .body(serde_json::to_string(&app_response)?.into())
                 .expect("Failed to build response"))
         }
-        _ => Ok(Response::builder()
-            .status(405)
-            .body("Method Not Allowed".into())
-            .expect("Failed to build response")),
+        m => {
+            warn!(method = %m, "Method not allowed");
+            Ok(Response::builder()
+                .status(405)
+                .body("Method Not Allowed".into())
+                .expect("Failed to build response"))
+        }
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+    // Initialize tracing subscriber for structured logging in CloudWatch
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::new(
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()),
+        ))
+        .json()
+        .init();
+    
+    info!("Lambda function starting up");
     lambda_http::run(service_fn(handler)).await
 }

@@ -26,34 +26,17 @@ cargo test
 For deployment to AWS Lambda, you need to build for the correct target:
 
 ```bash
-# Install cross-compilation tools
-rustup target add x86_64-unknown-linux-musl
-
 # Build for Lambda
-cargo build --release --target x86_64-unknown-linux-musl
+cargo lambda build --release
 ```
 
-The resulting binary will be at `target/x86_64-unknown-linux-musl/release/bootstrap`
+### Deploy
+```
+cargo lambda deploy
+```
+
 
 ## API
-
-### Prediction Endpoint
-
-**Input:**
-```json
-{
-  "market_type": "crypto" | "stocks" | "commodities" | "general"
-}
-```
-
-**Output:**
-```json
-{
-  "prediction": "Market prediction text",
-  "confidence": 0.75,
-  "timestamp": 1234567890
-}
-```
 
 ## Deployment
 

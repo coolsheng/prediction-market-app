@@ -1,6 +1,8 @@
 # Prediction Market App
 
 A monorepo containing a mobile application built with Expo and a serverless backend written in Rust.
+My attempt in trying to make concrete betting market predictions using simple AI aggregation prompts. Turns out it's not that easy.
+Just an afternoon project - no ethics were hurt during the making of this application. Let me know if this made you money somehow :)
 
 ## Project Structure
 

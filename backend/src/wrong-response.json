@@ -1,0 +1,13 @@
+{
+    "market_type": "Unknown",
+    "selected_outcome": "Unknown",
+    "prediction": "```json\n{\n    \"marketType\": \"Binary\",\n    \"selectedOutcome\": \"Down\",\n    \"prediction\": \"This market has already closed with overwhelming evidence pointing to a 'Down' resolution. The outcome prices show Down at 1.0 (100%) and Up at 0.0 (0%), indicating the market has effectively resolved. The last trade price of 0.001 for Up and best ask of 0.001 confirms traders believe Down has already occurred. With the market closed and price data showing such extreme positioning, the Bitcoin price during the February 9, 4:30AM-4:45AM ET window almost certainly declined or remained flat relative to the starting price, triggering the Down resolution condition.\",\n    \"recommendedBuy\": \"NO - This market is closed and has already resolved to Down. The outcome prices (Down at 1.0, Up at 0.0) indicate the event has concluded with Down as the result. There is no actionable trading opportunity as the market has ceased trading and is awaiting formal resolution confirmation from the Chainlink BTC/USD data stream.\",\n    \"confidence\": 0.99,\n    \"keyFactors\": [\n        \"Market status shows closed=true, indicating trading has ended\",\n        \"Outcome prices show extreme divergence: Down at 1.0 vs Up at 0.0\",\n        \"Last trade price of 0.001 for Up indicates near-zero probability assigned by final traders\",\n        \"The time window (Feb 9, 4:30-4:45AM ET) has already passed\"\n    ],\n    \"risks\": [\n        \"Potential data discrepancy between Chainlink oracle and actual market conditions\",\n        \"Technical oracle failure could theoretically affect resolution\",\n        \"Market manipulation in final seconds before close (extremely unlikely given price positioning)\"\n    ],\n    \"timeSensitivity\": \"None - Market has closed and time window has passed\",\n    \"alternativeOutcomesConsidered\": [\n        \"Up: Trading at 0.0 price with last trade at 0.001, indicating market participants concluded Bitcoin did not rise during the specified window. The extreme price positioning and closed status make this outcome virtually impossible.\"\n    ]\n}\n```",
+    "recommended_buy": "No recommendation available",
+    "confidence": 0.5,
+    "key_factors": [],
+    "risks": [],
+    "time_sensitivity": "Not specified",
+    "alternative_outcomes_considered": [],
+    "timestamp": 1770796691,
+    "model": "1.0.0"
+}
